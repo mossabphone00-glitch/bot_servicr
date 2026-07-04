@@ -94,9 +94,23 @@ async def cancel(u, c):
     await u.message.reply_text("تم إلغاء العملية."); c.user_data.clear(); return ConversationHandler.END
 
 async def laws_cmd(u, c):
-    cursor.execute("SELECT content FROM laws"); res = cursor.fetchone()
-    if not res: await u.message.reply_text("📜 *لا توجد قوانين محددة حالياً.*", parse_mode='Markdown'); return
-    await u.message.reply_text(f"📜 *قوانين الدوري الرسمية*\n\n{res[0]}\n\n➖➖➖➖➖➖\n*يرجى من جميع الأعضاء الالتزام.*", parse_mode='Markdown')
+    cursor.execute("SELECT content FROM laws")
+    res = cursor.fetchone()
+    
+    if not res:
+        await u.message.reply_text("📜 *لا توجد قوانين محددة حالياً.*", parse_mode='Markdown')
+        return
+
+    # نقوم بعرض النص كما هو ولكن مع إطار نظيف
+    formatted_text = (
+        f"📜 *قوانين الدوري الرسمية*\n\n"
+        f"{res[0]}\n\n"
+        f"➖➖➖➖➖➖\n"
+        f"✅ *يرجى من جميع الأعضاء الالتزام.*"
+    )
+    
+    await u.message.reply_text(formatted_text, parse_mode='Markdown')
+  
 
 async def add_laws_cmd(u, c):
     if not await is_admin(u): return

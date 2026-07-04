@@ -40,7 +40,7 @@ def create_table_image(data):
     header_font = get_font(120)
     cell_font = get_font(100)
     
-    headers = ["Équipe", "J", "G", "N", "P", "Buts", "Pts"]
+    headers = ["TEAM", "MP", "W", "D", "L", "B", "Pts"]
     draw.rectangle([0, 0, w, 250], fill="#2C3E50")
     for i, h_text in enumerate(headers):
         pos_x = 100 if i == 0 else 800 + (i-1)*250

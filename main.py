@@ -15,7 +15,6 @@ def home():
     return "البوت يعمل بكامل طاقته!"
 
 def run_web():
-    # Render يعطي رقم المنفذ في متغير بيئة PORT
     port = int(os.environ.get('PORT', 8080))
     app_web.run(host='0.0.0.0', port=port)
 
@@ -29,6 +28,8 @@ conn = sqlite3.connect('league.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS teams (name TEXT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY, team1 TEXT, team2 TEXT, s1 INTEGER DEFAULT 0, s2 INTEGER DEFAULT 0, round_num INTEGER, played INTEGER DEFAULT 0)''')
+# جدول جديد لتخزين القوانين
+cursor.execute('''CREATE TABLE IF NOT EXISTS laws (id INTEGER PRIMARY KEY, content TEXT)''')
 conn.commit()
 
 # --- دوال الرسم ---
@@ -93,6 +94,24 @@ async def cancel(u, c):
     c.user_data.clear()
     return ConversationHandler.END
 
+# --- أوامر القوانين ---
+async def laws_cmd(u, c):
+    cursor.execute("SELECT content FROM laws WHERE id=1")
+    res = cursor.fetchone()
+    laws = res[0] if res else "لم يتم تحديد قوانين بعد."
+    await u.message.reply_text(f"📜 **قوانين الدوري**:\n\n{laws}")
+
+async def add_laws_cmd(u, c):
+    if not await is_admin(u): return
+    if not c.args:
+        await u.message.reply_text("يرجى كتابة القانون بعد الأمر.\nمثال: /add_laws يمنع إشراك لاعبين غير مسجلين")
+        return
+    new_laws = " ".join(c.args)
+    cursor.execute("REPLACE INTO laws (id, content) VALUES (1, ?)", (new_laws,))
+    conn.commit()
+    await u.message.reply_text("✅ تم تحديث القوانين بنجاح.")
+
+# --- الأوامر الأساسية ---
 async def setup_entry(u, c):
     if not await is_admin(u): return
     cursor.execute("SELECT count(*) FROM matches")
@@ -173,7 +192,7 @@ async def btn_h(u, c):
     elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.")
 
 if __name__ == '__main__':
-    # تشغيل السيرفر في الخلفية
+    # تشغيل السيرفر الخفيف
     threading.Thread(target=run_web).start()
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -182,7 +201,15 @@ if __name__ == '__main__':
         states={COUNT:[MessageHandler(filters.TEXT, count_h)], TEAM:[MessageHandler(filters.TEXT, team_h)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    app.add_handler(conv); app.add_handler(CommandHandler("table", table_cmd)); app.add_handler(CommandHandler("round", round_cmd)); app.add_handler(CommandHandler("add", add_res_init)); app.add_handler(CallbackQueryHandler(btn_h))
+    
+    # تسجيل الأوامر
+    app.add_handler(conv)
+    app.add_handler(CommandHandler("table", table_cmd))
+    app.add_handler(CommandHandler("round", round_cmd))
+    app.add_handler(CommandHandler("add", add_res_init))
+    app.add_handler(CommandHandler("laws", laws_cmd))
+    app.add_handler(CommandHandler("add_laws", add_laws_cmd))
+    app.add_handler(CallbackQueryHandler(btn_h))
     
     print("البوت والسيرفر يعملان الآن...")
     app.run_polling()

@@ -103,7 +103,7 @@ async def table_cmd(u, c):
 # --- التشغيل ---
 if __name__ == '__main__':
     threading.Thread(target=run_web).start()
-    app = ApplicationBuilder().token("ضع_توكن_البوت_هنا").build()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
     # (إضافة الهاندلرز)
     app.add_handler(CommandHandler("setup", setup_entry))
     app.add_handler(CommandHandler("table", table_cmd))

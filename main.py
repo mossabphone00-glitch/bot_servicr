@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
                           ConversationHandler, MessageHandler, filters)
 
-# --- إعداد Flask للسيرفر الخفيف (للحفاظ على البوت نشطاً) ---
+# --- إعداد Flask للسيرفر الخفيف ---
 app_web = Flask(__name__)
 
 @app_web.route('/')
@@ -19,7 +19,8 @@ def run_web():
     app_web.run(host='0.0.0.0', port=port)
 
 # --- الإعدادات ---
-ADMIN_ID = 8642841625 
+# أضف هنا جميع معرفات الأدمنز (بينهم فواصل)
+ADMIN_IDS = [8642841625] 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 FONT_FILE = "arial.ttf"
 
@@ -28,7 +29,6 @@ conn = sqlite3.connect('league.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS teams (name TEXT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY, team1 TEXT, team2 TEXT, s1 INTEGER DEFAULT 0, s2 INTEGER DEFAULT 0, round_num INTEGER, played INTEGER DEFAULT 0)''')
-# جدول جديد لتخزين القوانين
 cursor.execute('''CREATE TABLE IF NOT EXISTS laws (id INTEGER PRIMARY KEY, content TEXT)''')
 conn.commit()
 
@@ -84,61 +84,47 @@ def create_fixture_image(round_num, matches):
 # --- منطق الأوامر ---
 COUNT, TEAM = range(2)
 
+# التعديل هنا: الدالة أصبحت تتحقق من القائمة
 async def is_admin(u):
-    if u.effective_user.id != ADMIN_ID:
+    if u.effective_user.id not in ADMIN_IDS:
         await u.message.reply_text("⛔ غير مسموح."); return False
     return True
 
 async def cancel(u, c):
-    await u.message.reply_text("تم إلغاء العملية.")
-    c.user_data.clear()
-    return ConversationHandler.END
+    await u.message.reply_text("تم إلغاء العملية."); c.user_data.clear(); return ConversationHandler.END
 
-# --- أوامر القوانين ---
 async def laws_cmd(u, c):
-    cursor.execute("SELECT content FROM laws WHERE id=1")
-    res = cursor.fetchone()
-    laws = res[0] if res else "لم يتم تحديد قوانين بعد."
-    await u.message.reply_text(f"📜 **قوانين الدوري**:\n\n{laws}")
+    cursor.execute("SELECT content FROM laws"); res = cursor.fetchone()
+    if not res: await u.message.reply_text("📜 *لا توجد قوانين محددة حالياً.*", parse_mode='Markdown'); return
+    await u.message.reply_text(f"📜 *قوانين الدوري الرسمية*\n\n{res[0]}\n\n➖➖➖➖➖➖\n*يرجى من جميع الأعضاء الالتزام.*", parse_mode='Markdown')
 
 async def add_laws_cmd(u, c):
     if not await is_admin(u): return
-    if not c.args:
-        await u.message.reply_text("يرجى كتابة القانون بعد الأمر.\nمثال: /add_laws يمنع إشراك لاعبين غير مسجلين")
-        return
+    if not c.args: await u.message.reply_text("⚠️ مثال: `/add_laws القانون الجديد...`", parse_mode='Markdown'); return
     new_laws = " ".join(c.args)
-    cursor.execute("REPLACE INTO laws (id, content) VALUES (1, ?)", (new_laws,))
-    conn.commit()
-    await u.message.reply_text("✅ تم تحديث القوانين بنجاح.")
+    cursor.execute("DELETE FROM laws"); cursor.execute("INSERT INTO laws (content) VALUES (?)", (new_laws,)); conn.commit()
+    await u.message.reply_text("✅ تم تحديث القوانين.", parse_mode='Markdown')
 
-# --- الأوامر الأساسية ---
 async def setup_entry(u, c):
     if not await is_admin(u): return
     cursor.execute("SELECT count(*) FROM matches")
     if cursor.fetchone()[0] > 0:
         kb = [[InlineKeyboardButton("✅ نعم، احذف", callback_data='confirm_setup')], [InlineKeyboardButton("❌ لا", callback_data='cancel_setup')]]
-        await u.message.reply_text("⚠️ يوجد دوري حالي. سيتم مسحه؟", reply_markup=InlineKeyboardMarkup(kb))
-        return
+        await u.message.reply_text("⚠️ يوجد دوري حالي. سيتم مسحه؟", reply_markup=InlineKeyboardMarkup(kb)); return
     await u.message.reply_text("كم عدد الفرق؟ (يجب أن يكون زوجياً)\nللإلغاء أرسل /cancel"); return COUNT
 
 async def count_h(u, c):
     try:
         count = int(u.message.text)
-        if count % 2 != 0:
-            await u.message.reply_text("⚠️ العدد يجب أن يكون زوجياً (مثلاً 4، 6، 8). أعد المحاولة:"); return COUNT
-        c.user_data['count'] = count; c.user_data['teams'] = []
-        await u.message.reply_text("اسم الفريق 1:"); return TEAM
-    except:
-        await u.message.reply_text("يرجى إدخال رقم صحيح."); return COUNT
+        if count % 2 != 0: await u.message.reply_text("⚠️ العدد يجب أن يكون زوجياً."); return COUNT
+        c.user_data['count'] = count; c.user_data['teams'] = []; await u.message.reply_text("اسم الفريق 1:"); return TEAM
+    except: await u.message.reply_text("يرجى إدخال رقم صحيح."); return COUNT
 
 async def team_h(u, c):
-    name = u.message.text.strip()
-    teams = c.user_data.get('teams', [])
-    if name in teams:
-        await u.message.reply_text(f"⚠️ الفريق '{name}' موجود مسبقاً! أعد إدخال الفريق {len(teams)+1}:"); return TEAM
+    name = u.message.text.strip(); teams = c.user_data.get('teams', [])
+    if name in teams: await u.message.reply_text(f"⚠️ الفريق '{name}' موجود مسبقاً!"); return TEAM
     teams.append(name)
     if len(teams) < c.user_data['count']: await u.message.reply_text(f"اسم الفريق {len(teams)+1}:"); return TEAM
-    
     cursor.execute("DELETE FROM teams"); cursor.execute("DELETE FROM matches")
     for t in teams: cursor.execute("INSERT INTO teams VALUES (?)", (t,))
     n = len(teams); rounds = []; fixed = teams[0]; rotating = teams[1:]
@@ -165,8 +151,7 @@ async def table_cmd(u, c):
     await u.message.reply_photo(photo=create_table_image(data))
 
 async def round_cmd(u, c):
-    cursor.execute("SELECT MIN(round_num) FROM matches WHERE played=0")
-    res = cursor.fetchone()
+    cursor.execute("SELECT MIN(round_num) FROM matches WHERE played=0"); res = cursor.fetchone()
     if not res or res[0] is None: await u.message.reply_text("انتهى الدوري!"); return
     cursor.execute("SELECT team1, team2 FROM matches WHERE round_num=? AND played=0", (res[0],))
     await u.message.reply_photo(photo=create_fixture_image(res[0], cursor.fetchall()))
@@ -182,27 +167,23 @@ async def btn_h(u, c):
     q = u.callback_query; await q.answer(); data = q.data
     if data == 'ok':
         m = c.user_data.get('m')
-        if not m: await q.edit_message_text("خطأ: انتهت صلاحية الطلب."); return
+        if not m: await q.edit_message_text("خطأ."); return
         cursor.execute("UPDATE matches SET s1=?, s2=?, played=1 WHERE team1=? AND team2=? AND played=0", (m['s1'], m['s2'], m['t1'], m['t2']))
         conn.commit(); await q.edit_message_text("✅ تم الحفظ!")
     elif data == 'no': await q.edit_message_text("🚫 ألغيت.")
     elif data == 'confirm_setup':
         cursor.execute("DELETE FROM matches"); cursor.execute("DELETE FROM teams"); conn.commit()
-        await q.edit_message_text("✅ تم المسح. ابدأ بـ /setup")
+        await q.edit_message_text("✅ تم المسح.")
     elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.")
 
 if __name__ == '__main__':
-    # تشغيل السيرفر الخفيف
     threading.Thread(target=run_web).start()
-    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup_entry)], 
         states={COUNT:[MessageHandler(filters.TEXT, count_h)], TEAM:[MessageHandler(filters.TEXT, team_h)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    
-    # تسجيل الأوامر
     app.add_handler(conv)
     app.add_handler(CommandHandler("table", table_cmd))
     app.add_handler(CommandHandler("round", round_cmd))
@@ -210,6 +191,4 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("laws", laws_cmd))
     app.add_handler(CommandHandler("add_laws", add_laws_cmd))
     app.add_handler(CallbackQueryHandler(btn_h))
-    
-    print("البوت والسيرفر يعملان الآن...")
     app.run_polling()

@@ -1,4 +1,5 @@
-import os, sqlite3, io
+import os, sqlite3, io, threading
+from flask import Flask
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -6,8 +7,20 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler, 
                           ConversationHandler, MessageHandler, filters)
 
+# --- إعداد Flask للسيرفر الخفيف (للحفاظ على البوت نشطاً) ---
+app_web = Flask(__name__)
+
+@app_web.route('/')
+def home():
+    return "البوت يعمل بكامل طاقته!"
+
+def run_web():
+    # Render يعطي رقم المنفذ في متغير بيئة PORT
+    port = int(os.environ.get('PORT', 8080))
+    app_web.run(host='0.0.0.0', port=port)
+
 # --- الإعدادات ---
-ADMIN_ID = 8642841625 # <--- ضع رقم الـ ID الخاص بك هنا
+ADMIN_ID = 8642841625 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 FONT_FILE = "arial.ttf"
 
@@ -160,6 +173,9 @@ async def btn_h(u, c):
     elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.")
 
 if __name__ == '__main__':
+    # تشغيل السيرفر في الخلفية
+    threading.Thread(target=run_web).start()
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup_entry)], 
@@ -167,4 +183,6 @@ if __name__ == '__main__':
         fallbacks=[CommandHandler('cancel', cancel)]
     )
     app.add_handler(conv); app.add_handler(CommandHandler("table", table_cmd)); app.add_handler(CommandHandler("round", round_cmd)); app.add_handler(CommandHandler("add", add_res_init)); app.add_handler(CallbackQueryHandler(btn_h))
+    
+    print("البوت والسيرفر يعملان الآن...")
     app.run_polling()

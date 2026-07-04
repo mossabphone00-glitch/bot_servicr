@@ -1,0 +1,5 @@
+flask
+Pillow
+arabic-reshaper
+python-bidi
+python-telegram-bot

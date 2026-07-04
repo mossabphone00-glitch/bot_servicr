@@ -19,7 +19,6 @@ def run_web():
     app_web.run(host='0.0.0.0', port=port)
 
 # --- الإعدادات ---
-# أضف هنا جميع معرفات الأدمنز (بينهم فواصل)
 ADMIN_IDS = [8642841625] 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 FONT_FILE = "arial.ttf"
@@ -43,6 +42,43 @@ def draw_text_arabic(draw, pos, text, font, color):
     reshaped = arabic_reshaper.reshape(text)
     bidi = get_display(reshaped)
     draw.text(pos, bidi, font=font, fill=color)
+
+# دالة لتقسيم النص لكي لا يخرج عن حدود الصورة
+def wrap_text(text, font, max_width):
+    lines = []
+    for paragraph in text.split('\n'):
+        words = paragraph.split(' ')
+        line = ""
+        for word in words:
+            test_line = line + word + " "
+            # استخدام getbbox لحساب عرض النص
+            bbox = font.getbbox(test_line)
+            w = bbox[2] - bbox[0]
+            if w < max_width:
+                line = test_line
+            else:
+                lines.append(line)
+                line = word + " "
+        lines.append(line)
+    return lines
+
+# دالة إنشاء صورة القوانين
+def create_laws_image(text):
+    w, h = 1600, 2000 
+    img = Image.new('RGB', (w, h), color='#1a1a2e')
+    draw = ImageDraw.Draw(img)
+    title_font = get_font(100)
+    text_font = get_font(65)
+    
+    draw.text((500, 50), "📜 قوانين الدوري", fill="#f8b400", font=title_font)
+    
+    y = 250
+    lines = wrap_text(text, text_font, 1400)
+    for line in lines:
+        draw_text_arabic(draw, (80, y), line, text_font, "white")
+        y += 85
+    buf = io.BytesIO(); img.save(buf, format='PNG'); buf.seek(0)
+    return buf
 
 def create_table_image(data):
     w, h = 2500, 700 + (len(data) * 250)
@@ -84,7 +120,6 @@ def create_fixture_image(round_num, matches):
 # --- منطق الأوامر ---
 COUNT, TEAM = range(2)
 
-# التعديل هنا: الدالة أصبحت تتحقق من القائمة
 async def is_admin(u):
     if u.effective_user.id not in ADMIN_IDS:
         await u.message.reply_text("⛔ غير مسموح."); return False
@@ -93,31 +128,22 @@ async def is_admin(u):
 async def cancel(u, c):
     await u.message.reply_text("تم إلغاء العملية."); c.user_data.clear(); return ConversationHandler.END
 
+# تم تحديث الدالة لتعرض صورة
 async def laws_cmd(u, c):
     cursor.execute("SELECT content FROM laws")
     res = cursor.fetchone()
-    
-    if not res:
-        await u.message.reply_text("📜 *لا توجد قوانين محددة حالياً.*", parse_mode='Markdown')
-        return
+    if not res: await u.message.reply_text("📜 لا توجد قوانين."); return
+    await u.message.reply_photo(photo=create_laws_image(res[0]))
 
-    # نقوم بعرض النص كما هو ولكن مع إطار نظيف
-    formatted_text = (
-        f"📜 *قوانين الدوري الرسمية*\n\n"
-        f"{res[0]}\n\n"
-        f"➖➖➖➖➖➖\n"
-        f"✅ *يرجى من جميع الأعضاء الالتزام.*"
-    )
-    
-    await u.message.reply_text(formatted_text, parse_mode='Markdown')
-  
-
+# تم تحديث الدالة لتأخذ النص الخام (الأسطر كما هي)
 async def add_laws_cmd(u, c):
     if not await is_admin(u): return
-    if not c.args: await u.message.reply_text("⚠️ مثال: `/add_laws القانون الجديد...`", parse_mode='Markdown'); return
-    new_laws = " ".join(c.args)
+    if len(u.message.text.split(' ', 1)) < 2:
+        await u.message.reply_text("⚠️ يرجى كتابة القانون بعد الأمر."); return
+    
+    new_laws = u.message.text.split(' ', 1)[1]
     cursor.execute("DELETE FROM laws"); cursor.execute("INSERT INTO laws (content) VALUES (?)", (new_laws,)); conn.commit()
-    await u.message.reply_text("✅ تم تحديث القوانين.", parse_mode='Markdown')
+    await u.message.reply_text("✅ تم تحديث القوانين بنجاح.")
 
 async def setup_entry(u, c):
     if not await is_admin(u): return
@@ -184,11 +210,11 @@ async def btn_h(u, c):
         if not m: await q.edit_message_text("خطأ."); return
         cursor.execute("UPDATE matches SET s1=?, s2=?, played=1 WHERE team1=? AND team2=? AND played=0", (m['s1'], m['s2'], m['t1'], m['t2']))
         conn.commit(); await q.edit_message_text("✅ تم الحفظ!")
-    elif data == 'no': await q.edit_message_text("🚫 ألغيت.")
+    elif data == 'no': await q.edit_message_text("🚫 ألغيت.");
     elif data == 'confirm_setup':
         cursor.execute("DELETE FROM matches"); cursor.execute("DELETE FROM teams"); conn.commit()
-        await q.edit_message_text("✅ تم المسح.")
-    elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.")
+        await q.edit_message_text("✅ تم المسح.");
+    elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.");
 
 if __name__ == '__main__':
     threading.Thread(target=run_web).start()

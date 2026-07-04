@@ -139,11 +139,28 @@ async def add_res_init(u, c):
 
 async def btn_h(u, c):
     q = u.callback_query
-    if q.data == 'ok':
+    await q.answer() # رد على الزر لإخفاء علامة التحميل
+    data = q.data
+
+    # --- التعامل مع أزرار إضافة النتيجة ---
+    if data == 'ok':
         m = c.user_data.get('m')
         cursor.execute("UPDATE matches SET s1=?, s2=?, played=1 WHERE team1=? AND team2=? AND played=0", (m['s1'], m['s2'], m['t1'], m['t2']))
         conn.commit(); await q.edit_message_text("✅ تم الحفظ!")
-    else: await q.edit_message_text("🚫 ألغيت.")
+    
+    elif data == 'no':
+        await q.edit_message_text("🚫 تم الإلغاء.")
+
+    # --- التعامل مع أزرار التحذير (setup) ---
+    elif data == 'confirm_setup':
+        cursor.execute("DELETE FROM matches")
+        cursor.execute("DELETE FROM teams")
+        conn.commit()
+        await q.edit_message_text("✅ تم مسح الدوري القديم. يرجى كتابة /setup مجدداً للبدء.")
+        
+    elif data == 'cancel_setup':
+        await q.edit_message_text("🚫 تم إلغاء عملية المسح.")
+
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()

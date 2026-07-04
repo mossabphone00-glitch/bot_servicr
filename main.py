@@ -1,5 +1,4 @@
-import os, sqlite3, io, threading
-from flask import Flask
+import os, sqlite3, io
 from PIL import Image, ImageDraw, ImageFont
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -19,12 +18,11 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS teams (name TEXT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY, team1 TEXT, team2 TEXT, s1 INTEGER DEFAULT 0, s2 INTEGER DEFAULT 0, round_num INTEGER, played INTEGER DEFAULT 0)''')
 conn.commit()
 
-# --- دالة الخط (مع فحص وجود الملف) ---
+# --- دوال الرسم ---
 def get_font(size):
     if os.path.exists(FONT_FILE):
         return ImageFont.truetype(FONT_FILE, size)
     else:
-        print(f"تحذير: ملف {FONT_FILE} غير موجود! سيتم استخدام الخط الافتراضي.")
         return ImageFont.load_default()
 
 def draw_text_arabic(draw, pos, text, font, color):
@@ -32,20 +30,16 @@ def draw_text_arabic(draw, pos, text, font, color):
     bidi = get_display(reshaped)
     draw.text(pos, bidi, font=font, fill=color)
 
-# --- الدوال الفنية ---
 def create_table_image(data):
     w, h = 2500, 700 + (len(data) * 250)
     img = Image.new('RGB', (w, h), color='#1a1a2e')
     draw = ImageDraw.Draw(img)
-    header_font = get_font(120)
-    cell_font = get_font(100)
-    
+    header_font = get_font(120); cell_font = get_font(100)
     headers = ["TEAM", "MP", "W", "D", "L", "B", "Pts"]
     draw.rectangle([0, 0, w, 250], fill="#2C3E50")
     for i, h_text in enumerate(headers):
         pos_x = 100 if i == 0 else 800 + (i-1)*250
         draw.text((pos_x, 50), h_text, fill="#E74C3C", font=header_font)
-
     y = 350
     for idx, row in enumerate(data):
         bg = "#16213e" if idx % 2 == 0 else "#1a1a2e"
@@ -62,7 +56,6 @@ def create_fixture_image(round_num, matches):
     img = Image.new('RGB', (w, h), color='#1a1a2e')
     draw = ImageDraw.Draw(img)
     title_font, text_font = get_font(100), get_font(80)
-
     draw.text((600, 50), f"Journée {round_num}", fill="#f8b400", font=title_font)
     y = 250
     for m in matches:
@@ -82,6 +75,11 @@ async def is_admin(u):
         await u.message.reply_text("⛔ غير مسموح."); return False
     return True
 
+async def cancel(u, c):
+    await u.message.reply_text("تم إلغاء العملية.")
+    c.user_data.clear()
+    return ConversationHandler.END
+
 async def setup_entry(u, c):
     if not await is_admin(u): return
     cursor.execute("SELECT count(*) FROM matches")
@@ -89,15 +87,26 @@ async def setup_entry(u, c):
         kb = [[InlineKeyboardButton("✅ نعم، احذف", callback_data='confirm_setup')], [InlineKeyboardButton("❌ لا", callback_data='cancel_setup')]]
         await u.message.reply_text("⚠️ يوجد دوري حالي. سيتم مسحه؟", reply_markup=InlineKeyboardMarkup(kb))
         return
-    await u.message.reply_text("كم عدد الفرق؟"); return COUNT
+    await u.message.reply_text("كم عدد الفرق؟ (يجب أن يكون زوجياً)\nللإلغاء أرسل /cancel"); return COUNT
 
 async def count_h(u, c):
-    c.user_data['count'] = int(u.message.text); c.user_data['teams'] = []
-    await u.message.reply_text("اسم الفريق 1:"); return TEAM
+    try:
+        count = int(u.message.text)
+        if count % 2 != 0:
+            await u.message.reply_text("⚠️ العدد يجب أن يكون زوجياً (مثلاً 4، 6، 8). أعد المحاولة:"); return COUNT
+        c.user_data['count'] = count; c.user_data['teams'] = []
+        await u.message.reply_text("اسم الفريق 1:"); return TEAM
+    except:
+        await u.message.reply_text("يرجى إدخال رقم صحيح."); return COUNT
 
 async def team_h(u, c):
-    teams = c.user_data.get('teams', []); teams.append(u.message.text.strip())
+    name = u.message.text.strip()
+    teams = c.user_data.get('teams', [])
+    if name in teams:
+        await u.message.reply_text(f"⚠️ الفريق '{name}' موجود مسبقاً! أعد إدخال الفريق {len(teams)+1}:"); return TEAM
+    teams.append(name)
     if len(teams) < c.user_data['count']: await u.message.reply_text(f"اسم الفريق {len(teams)+1}:"); return TEAM
+    
     cursor.execute("DELETE FROM teams"); cursor.execute("DELETE FROM matches")
     for t in teams: cursor.execute("INSERT INTO teams VALUES (?)", (t,))
     n = len(teams); rounds = []; fixed = teams[0]; rotating = teams[1:]
@@ -107,7 +116,7 @@ async def team_h(u, c):
         rounds.append(rnd); rotating = [rotating[-1]] + rotating[:-1]
     for i, r_matches in enumerate(rounds):
         for m in r_matches: cursor.execute("INSERT INTO matches (team1, team2, round_num) VALUES (?,?,?)", (m[0], m[1], i+1))
-    conn.commit(); await u.message.reply_text("✅ تم!"); return ConversationHandler.END
+    conn.commit(); await u.message.reply_text("✅ تم إنشاء الدوري!"); return ConversationHandler.END
 
 async def table_cmd(u, c):
     cursor.execute("SELECT name FROM teams"); teams = [r[0] for r in cursor.fetchall()]
@@ -138,32 +147,24 @@ async def add_res_init(u, c):
     await u.message.reply_text(f"تأكيد: {c.args[0]} {c.args[1]} - {c.args[3]} {c.args[2]}", reply_markup=InlineKeyboardMarkup(kb))
 
 async def btn_h(u, c):
-    q = u.callback_query
-    await q.answer() # رد على الزر لإخفاء علامة التحميل
-    data = q.data
-
-    # --- التعامل مع أزرار إضافة النتيجة ---
+    q = u.callback_query; await q.answer(); data = q.data
     if data == 'ok':
         m = c.user_data.get('m')
+        if not m: await q.edit_message_text("خطأ: انتهت صلاحية الطلب."); return
         cursor.execute("UPDATE matches SET s1=?, s2=?, played=1 WHERE team1=? AND team2=? AND played=0", (m['s1'], m['s2'], m['t1'], m['t2']))
         conn.commit(); await q.edit_message_text("✅ تم الحفظ!")
-    
-    elif data == 'no':
-        await q.edit_message_text("🚫 تم الإلغاء.")
-
-    # --- التعامل مع أزرار التحذير (setup) ---
+    elif data == 'no': await q.edit_message_text("🚫 ألغيت.")
     elif data == 'confirm_setup':
-        cursor.execute("DELETE FROM matches")
-        cursor.execute("DELETE FROM teams")
-        conn.commit()
-        await q.edit_message_text("✅ تم مسح الدوري القديم. يرجى كتابة /setup مجدداً للبدء.")
-        
-    elif data == 'cancel_setup':
-        await q.edit_message_text("🚫 تم إلغاء عملية المسح.")
-
+        cursor.execute("DELETE FROM matches"); cursor.execute("DELETE FROM teams"); conn.commit()
+        await q.edit_message_text("✅ تم المسح. ابدأ بـ /setup")
+    elif data == 'cancel_setup': await q.edit_message_text("🚫 أُلغيت.")
 
 if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    conv = ConversationHandler(entry_points=[CommandHandler('setup', setup_entry)], states={COUNT:[MessageHandler(filters.TEXT, count_h)], TEAM:[MessageHandler(filters.TEXT, team_h)]}, fallbacks=[])
+    conv = ConversationHandler(
+        entry_points=[CommandHandler('setup', setup_entry)], 
+        states={COUNT:[MessageHandler(filters.TEXT, count_h)], TEAM:[MessageHandler(filters.TEXT, team_h)]}, 
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
     app.add_handler(conv); app.add_handler(CommandHandler("table", table_cmd)); app.add_handler(CommandHandler("round", round_cmd)); app.add_handler(CommandHandler("add", add_res_init)); app.add_handler(CallbackQueryHandler(btn_h))
     app.run_polling()

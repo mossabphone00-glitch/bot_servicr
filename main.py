@@ -19,7 +19,6 @@ def run_web():
     app_web.run(host='0.0.0.0', port=port)
 
 # --- الإعدادات ---
-# أضف هنا جميع معرفات الأدمنز (بينهم فواصل)
 ADMIN_IDS = [8642841625, 123456789] 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 FONT_FILE = "arial.ttf"
@@ -46,36 +45,44 @@ def draw_text_arabic(draw, pos, text, font, color):
 
 def create_table_image(data):
     w, h = 2500, 700 + (len(data) * 250)
-    img = Image.new('RGB', (w, h), color='#1a1a2e')
+    # الخلفية زرقاء داكنة (مقربة للأسود)
+    img = Image.new('RGB', (w, h), color='#001F3F') 
     draw = ImageDraw.Draw(img)
     header_font = get_font(120); cell_font = get_font(100)
     headers = ["TEAM", "MP", "W", "D", "L", "B", "Pts"]
-    draw.rectangle([0, 0, w, 250], fill="#2C3E50")
+    # خلفية الهيدر زرقاء متوسطة
+    draw.rectangle([0, 0, w, 250], fill="#003366")
     for i, h_text in enumerate(headers):
         pos_x = 100 if i == 0 else 800 + (i-1)*250
-        draw.text((pos_x, 50), h_text, fill="#E74C3C", font=header_font)
+        # لون العناوين أزرق سماوي
+        draw.text((pos_x, 50), h_text, fill="#00BFFF", font=header_font)
     y = 350
     for idx, row in enumerate(data):
-        bg = "#16213e" if idx % 2 == 0 else "#1a1a2e"
+        # الأسطر بالتناوب بين درجات الأزرق
+        bg = "#003366" if idx % 2 == 0 else "#001F3F"
         draw.rectangle([0, y-20, w, y+200], fill=bg)
         draw_text_arabic(draw, (100, y), str(row[0]), cell_font, "white")
         for i in range(1, 7):
-            draw.text((800 + (i-1)*250, y), str(row[i]), fill="#f8f9fa", font=cell_font)
+            draw.text((800 + (i-1)*250, y), str(row[i]), fill="#FFFFFF", font=cell_font)
         y += 250
     buf = io.BytesIO(); img.save(buf, format='PNG'); buf.seek(0)
     return buf
 
 def create_fixture_image(round_num, matches):
     w, h = 1800, 500 + (len(matches) * 250)
-    img = Image.new('RGB', (w, h), color='#1a1a2e')
+    # الخلفية زرقاء داكنة
+    img = Image.new('RGB', (w, h), color='#001F3F')
     draw = ImageDraw.Draw(img)
     title_font, text_font = get_font(100), get_font(80)
-    draw.text((600, 50), f"Journée {round_num}", fill="#f8b400", font=title_font)
+    # العنوان أزرق سماوي
+    draw.text((600, 50), f"Journée {round_num}", fill="#00BFFF", font=title_font)
     y = 250
     for m in matches:
-        draw.rectangle([50, y, 1750, y+200], fill="#16213e", outline="#e94560", width=6)
+        # الإطار والحدود زرقاء
+        draw.rectangle([50, y, 1750, y+200], fill="#003366", outline="#00BFFF", width=6)
         draw_text_arabic(draw, (100, y+50), m[0], text_font, "white")
-        draw.text((800, y+50), "VS", fill="#e94560", font=text_font)
+        # الـ VS أزرق سماوي
+        draw.text((800, y+50), "VS", fill="#00BFFF", font=text_font)
         draw_text_arabic(draw, (1200, y+50), m[1], text_font, "white")
         y += 250
     buf = io.BytesIO(); img.save(buf, format='PNG'); buf.seek(0)
@@ -84,7 +91,6 @@ def create_fixture_image(round_num, matches):
 # --- منطق الأوامر ---
 COUNT, TEAM = range(2)
 
-# التعديل هنا: الدالة أصبحت تتحقق من القائمة
 async def is_admin(u):
     if u.effective_user.id not in ADMIN_IDS:
         await u.message.reply_text("⛔ غير مسموح."); return False

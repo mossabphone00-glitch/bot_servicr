@@ -19,7 +19,7 @@ def run_web():
     app_web.run(host='0.0.0.0', port=port)
 
 # --- الإعدادات ---
-ADMIN_IDS = [8642841625, 6022075170] 
+ADMIN_IDS = [8642841625] 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 FONT_FILE = "arial.ttf"
 

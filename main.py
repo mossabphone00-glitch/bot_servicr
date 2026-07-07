@@ -28,7 +28,8 @@ conn = sqlite3.connect('league.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''CREATE TABLE IF NOT EXISTS teams (name TEXT PRIMARY KEY)''')
 cursor.execute('''CREATE TABLE IF NOT EXISTS matches (id INTEGER PRIMARY KEY, team1 TEXT, team2 TEXT, s1 INTEGER DEFAULT 0, s2 INTEGER DEFAULT 0, round_num INTEGER, played INTEGER DEFAULT 0)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS laws (id INTEGER PRIMARY KEY, content TEXT)''')
+# تعديل جدول القوانين ليخزن معرف الصورة
+cursor.execute('''CREATE TABLE IF NOT EXISTS laws (id INTEGER PRIMARY KEY, file_id TEXT)''')
 conn.commit()
 
 # --- دوال الرسم ---
@@ -45,20 +46,16 @@ def draw_text_arabic(draw, pos, text, font, color):
 
 def create_table_image(data):
     w, h = 2500, 700 + (len(data) * 250)
-    # الخلفية زرقاء داكنة (مقربة للأسود)
     img = Image.new('RGB', (w, h), color='#001F3F') 
     draw = ImageDraw.Draw(img)
     header_font = get_font(120); cell_font = get_font(100)
     headers = ["TEAM", "MP", "W", "D", "L", "B", "Pts"]
-    # خلفية الهيدر زرقاء متوسطة
     draw.rectangle([0, 0, w, 250], fill="#003366")
     for i, h_text in enumerate(headers):
         pos_x = 100 if i == 0 else 800 + (i-1)*250
-        # لون العناوين أزرق سماوي
         draw.text((pos_x, 50), h_text, fill="#00BFFF", font=header_font)
     y = 350
     for idx, row in enumerate(data):
-        # الأسطر بالتناوب بين درجات الأزرق
         bg = "#003366" if idx % 2 == 0 else "#001F3F"
         draw.rectangle([0, y-20, w, y+200], fill=bg)
         draw_text_arabic(draw, (100, y), str(row[0]), cell_font, "white")
@@ -70,18 +67,14 @@ def create_table_image(data):
 
 def create_fixture_image(round_num, matches):
     w, h = 1800, 500 + (len(matches) * 250)
-    # الخلفية زرقاء داكنة
     img = Image.new('RGB', (w, h), color='#001F3F')
     draw = ImageDraw.Draw(img)
     title_font, text_font = get_font(100), get_font(80)
-    # العنوان أزرق سماوي
     draw.text((600, 50), f"Journée {round_num}", fill="#00BFFF", font=title_font)
     y = 250
     for m in matches:
-        # الإطار والحدود زرقاء
         draw.rectangle([50, y, 1750, y+200], fill="#003366", outline="#00BFFF", width=6)
         draw_text_arabic(draw, (100, y+50), m[0], text_font, "white")
-        # الـ VS أزرق سماوي
         draw.text((800, y+50), "VS", fill="#00BFFF", font=text_font)
         draw_text_arabic(draw, (1200, y+50), m[1], text_font, "white")
         y += 250
@@ -89,7 +82,7 @@ def create_fixture_image(round_num, matches):
     return buf
 
 # --- منطق الأوامر ---
-COUNT, TEAM = range(2)
+COUNT, TEAM, PHOTO = range(3)
 
 async def is_admin(u):
     if u.effective_user.id not in ADMIN_IDS:
@@ -99,18 +92,32 @@ async def is_admin(u):
 async def cancel(u, c):
     await u.message.reply_text("تم إلغاء العملية."); c.user_data.clear(); return ConversationHandler.END
 
+# --- أوامر القوانين الجديدة ---
 async def laws_cmd(u, c):
-    cursor.execute("SELECT content FROM laws"); res = cursor.fetchone()
-    if not res: await u.message.reply_text("📜 *لا توجد قوانين محددة حالياً.*", parse_mode='Markdown'); return
-    await u.message.reply_text(f"📜 *قوانين الدوري الرسمية*\n\n{res[0]}\n\n➖➖➖➖➖➖\n*يرجى من جميع الأعضاء الالتزام.*", parse_mode='Markdown')
+    cursor.execute("SELECT file_id FROM laws")
+    res = cursor.fetchone()
+    if not res or res[0] is None: 
+        await u.message.reply_text("📜 *لا توجد قوانين مصورة حالياً.*", parse_mode='Markdown'); return
+    await u.message.reply_photo(photo=res[0], caption="📜 *قوانين الدوري الرسمية*", parse_mode='Markdown')
 
 async def add_laws_cmd(u, c):
     if not await is_admin(u): return
-    if not c.args: await u.message.reply_text("⚠️ مثال: `/add_laws القانون الجديد...`", parse_mode='Markdown'); return
-    new_laws = " ".join(c.args)
-    cursor.execute("DELETE FROM laws"); cursor.execute("INSERT INTO laws (content) VALUES (?)", (new_laws,)); conn.commit()
-    await u.message.reply_text("✅ تم تحديث القوانين.", parse_mode='Markdown')
+    await u.message.reply_text("📸 أرسل الآن صورة القوانين (سأقوم بحفظها).")
+    return PHOTO
 
+async def save_laws_photo(u, c):
+    if u.message.photo:
+        photo_file = u.message.photo[-1].file_id
+        cursor.execute("DELETE FROM laws")
+        cursor.execute("INSERT INTO laws (file_id) VALUES (?)", (photo_file,))
+        conn.commit()
+        await u.message.reply_text("✅ تم تحديث قوانين الدوري بنجاح.")
+        return ConversationHandler.END
+    else:
+        await u.message.reply_text("⚠️ يرجى إرسال صورة فقط.")
+        return PHOTO
+
+# --- باقي منطق الأوامر ---
 async def setup_entry(u, c):
     if not await is_admin(u): return
     cursor.execute("SELECT count(*) FROM matches")
@@ -185,16 +192,26 @@ async def btn_h(u, c):
 if __name__ == '__main__':
     threading.Thread(target=run_web).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # معالج إعداد الدوري
     conv = ConversationHandler(
         entry_points=[CommandHandler('setup', setup_entry)], 
         states={COUNT:[MessageHandler(filters.TEXT, count_h)], TEAM:[MessageHandler(filters.TEXT, team_h)]}, 
         fallbacks=[CommandHandler('cancel', cancel)]
     )
+    
+    # معالج إضافة القوانين
+    laws_conv = ConversationHandler(
+        entry_points=[CommandHandler('add_laws', add_laws_cmd)],
+        states={PHOTO:[MessageHandler(filters.PHOTO, save_laws_photo)]},
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+
     app.add_handler(conv)
+    app.add_handler(laws_conv)
     app.add_handler(CommandHandler("table", table_cmd))
     app.add_handler(CommandHandler("round", round_cmd))
     app.add_handler(CommandHandler("add", add_res_init))
     app.add_handler(CommandHandler("laws", laws_cmd))
-    app.add_handler(CommandHandler("add_laws", add_laws_cmd))
     app.add_handler(CallbackQueryHandler(btn_h))
     app.run_polling()
